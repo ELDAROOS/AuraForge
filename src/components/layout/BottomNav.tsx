@@ -19,8 +19,9 @@ export function BottomNav() {
   const { haptic } = useTelegram()
 
   return (
-    <nav 
-      className="fixed bottom-0 left-0 right-0 z-50 flex items-center justify-between px-2 pt-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] bg-black/80 backdrop-blur-xl border-t border-zinc-800"
+    <nav
+      className="fixed bottom-0 left-0 right-0 z-50 h-16 flex items-center justify-between px-2 bg-black/90 backdrop-blur-xl border-t border-zinc-800"
+      style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
       aria-label="Главная навигация"
     >
       {NAV_ITEMS.map(({ href, label, icon: Icon }) => {

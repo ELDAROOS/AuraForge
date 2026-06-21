@@ -35,6 +35,8 @@ export interface TelegramWebApp {
     user?: TelegramUser
     auth_date: number
     hash: string
+    /** Deep link parameter: передаётся из t.me/bot?startapp=... */
+    start_param?: string
   }
   version: string
   platform: string

@@ -27,10 +27,18 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="ru" suppressHydrationWarning>
-      <body className={`${inter.variable} font-sans antialiased`}>
+      <body className={`${inter.variable} font-sans antialiased bg-black`}>
         <TelegramProvider>
-          <div className="app-shell">
-            <main className="main-content">
+          {/*
+            app-shell: занимает 100% высоты экрана, flex-col.
+            main: прокручивается, имеет отступ снизу = высота BottomNav (64px)
+            + safe-area-inset-bottom для iPhone.
+          */}
+          <div className="flex flex-col min-h-screen">
+            <main
+              className="flex-1 overflow-y-auto"
+              style={{ paddingBottom: 'calc(64px + env(safe-area-inset-bottom))' }}
+            >
               {children}
             </main>
             <BottomNav />
