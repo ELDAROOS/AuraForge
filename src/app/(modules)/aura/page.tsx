@@ -1,271 +1,453 @@
 'use client'
 
-import { useState } from 'react'
-import { Trophy, Users, Flame, UserPlus, Settings2, Target } from 'lucide-react'
+import { useState, useEffect, useCallback } from 'react'
+import {
+  Trophy, Users, Flame, UserPlus, Settings2,
+  Target, Zap, ChevronRight, RefreshCw,
+} from 'lucide-react'
 import { useTelegram } from '@/hooks/useTelegram'
-import { MacroCalculatorModal } from '@/components/profile/MacroCalculatorModal'
+import { MacroCalculatorModal, type BiometricData } from '@/components/profile/MacroCalculatorModal'
 import type { MacroResult } from '@/lib/calculations'
 import { useAppStore } from '@/store/useAppStore'
+import { xpForNextLevel } from '@/lib/nutrition/tdee'
 
+// ─── Types ────────────────────────────────────────────────────────
 
-/*
-  ========================================================
-  Supabase SQL Schema: `friends`
-  ========================================================
-  create table public.friends (
-    id uuid default gen_random_uuid() primary key,
-    user_id text not null, -- Telegram User ID
-    friend_id text not null, -- Telegram User ID of the friend
-    created_at timestamp with time zone default timezone('utc'::text, now()) not null,
-    unique(user_id, friend_id)
-  );
-
-  -- Index for fast lookup
-  create index idx_friends_user_id on public.friends(user_id);
-*/
-
-// ── Types & Mocks ────────────────────────────────────────────────
-interface FriendStats {
-  id: string
-  name: string
-  avatarUrl: string
-  level: number
-  auraPoints: number
-  streak: number
-  progressText: string
-  weeklyChange: number // e.g., +15
-  isOnline: boolean
-  allHabitsDone: boolean
+interface FriendRow {
+  tg_id: number
+  first_name: string
+  last_name: string | null
+  avatar_url: string | null
+  aura_points: number
+  aura_level: number
+  current_streak: number
+  last_active_date: string | null
 }
 
-const MOCK_FRIENDS: FriendStats[] = [
-  {
-    id: 'f1',
-    name: 'Alex D.',
-    avatarUrl: 'https://api.dicebear.com/7.x/notionists/svg?seed=Alex&backgroundColor=18181b',
-    level: 12,
-    auraPoints: 2450,
-    streak: 14,
-    progressText: 'Выполнил мьюинг и треню',
-    weeklyChange: 15,
-    isOnline: true,
-    allHabitsDone: true,
-  },
-  {
-    id: 'f2',
-    name: 'Mikhail',
-    avatarUrl: 'https://api.dicebear.com/7.x/notionists/svg?seed=Mikhail&backgroundColor=18181b',
-    level: 8,
-    auraPoints: 1840,
-    streak: 3,
-    progressText: 'Сбросил 200 ккал на беге',
-    weeklyChange: -2,
-    isOnline: false,
-    allHabitsDone: false,
-  },
-  {
-    id: 'f3',
-    name: 'Cyber_Chad',
-    avatarUrl: 'https://api.dicebear.com/7.x/notionists/svg?seed=Chad&backgroundColor=18181b',
-    level: 15,
-    auraPoints: 3100,
-    streak: 45,
-    progressText: 'Идеальное питание (100%)',
-    weeklyChange: 8,
-    isOnline: true,
-    allHabitsDone: true,
-  }
-]
+// ─── Sub-components ───────────────────────────────────────────────
+
+/** Large stat tile */
+function StatTile({
+  label,
+  value,
+  unit,
+  icon: Icon,
+}: {
+  label: string
+  value: string | number
+  unit?: string
+  icon: React.ElementType
+}) {
+  return (
+    <div className="flex-1 bg-zinc-900 border border-zinc-800 rounded-2xl p-4 flex flex-col gap-1">
+      <div className="flex items-center gap-1.5 mb-1">
+        <Icon size={11} className="text-zinc-600" />
+        <span className="text-[9px] font-bold text-zinc-600 uppercase tracking-widest">{label}</span>
+      </div>
+      <div className="flex items-baseline gap-1">
+        <span className="text-2xl font-black text-zinc-100 mono-number leading-none tabular-nums">
+          {value}
+        </span>
+        {unit && (
+          <span className="text-[10px] font-bold text-zinc-600 uppercase tracking-wider">{unit}</span>
+        )}
+      </div>
+    </div>
+  )
+}
+
+/** Single friend row in leaderboard */
+function FriendRow({
+  friend,
+  rank,
+  isSelf,
+}: {
+  friend: FriendRow
+  rank: number
+  isSelf?: boolean
+}) {
+  const isActiveToday =
+    friend.last_active_date === new Date().toISOString().split('T')[0]
+
+  const initials = [friend.first_name[0], friend.last_name?.[0]]
+    .filter(Boolean)
+    .join('')
+    .toUpperCase()
+
+  return (
+    <div
+      className={`flex items-center gap-3 p-3.5 rounded-2xl border transition-all ${
+        isSelf
+          ? 'bg-zinc-800/60 border-zinc-600'
+          : 'bg-zinc-900 border-zinc-800'
+      }`}
+    >
+      {/* Rank */}
+      <div className="w-7 flex items-center justify-center flex-shrink-0">
+        {rank === 1 ? (
+          <Trophy size={14} className="text-zinc-300" />
+        ) : (
+          <span className="text-[10px] font-bold text-zinc-600 mono-number">#{rank}</span>
+        )}
+      </div>
+
+      {/* Avatar */}
+      <div className="relative flex-shrink-0">
+        {friend.avatar_url ? (
+          <img
+            src={friend.avatar_url}
+            alt={friend.first_name}
+            className="w-10 h-10 rounded-xl object-cover grayscale"
+          />
+        ) : (
+          <div className="w-10 h-10 rounded-xl bg-zinc-800 border border-zinc-700 flex items-center justify-center">
+            <span className="text-xs font-bold text-zinc-400">{initials}</span>
+          </div>
+        )}
+        {isActiveToday && (
+          <div className="absolute -top-0.5 -right-0.5 w-3 h-3 rounded-full bg-zinc-900 flex items-center justify-center">
+            <div className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+          </div>
+        )}
+      </div>
+
+      {/* Name + label */}
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2">
+          <p className="text-sm font-bold text-zinc-100 truncate">
+            {friend.first_name}{friend.last_name ? ` ${friend.last_name}` : ''}
+          </p>
+          {isSelf && (
+            <span className="text-[8px] font-bold text-zinc-500 uppercase tracking-widest border border-zinc-700 px-1 py-0.5 rounded">
+              ВЫ
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-2 mt-0.5">
+          <span className="text-[9px] font-bold text-zinc-600 mono-number uppercase tracking-widest">
+            LVL {friend.aura_level}
+          </span>
+          {friend.current_streak > 0 && (
+            <div className="flex items-center gap-0.5">
+              <Flame size={9} className="text-zinc-600" />
+              <span className="text-[9px] text-zinc-600 mono-number">{friend.current_streak}д</span>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Points */}
+      <div className="text-right flex-shrink-0">
+        <div className="flex items-center gap-1">
+          <Zap size={10} className="text-zinc-500" />
+          <span className="text-sm font-black text-zinc-100 mono-number tabular-nums">
+            {friend.aura_points.toLocaleString()}
+          </span>
+        </div>
+        <p className="text-[9px] text-zinc-600 uppercase tracking-wider mt-0.5">XP</p>
+      </div>
+    </div>
+  )
+}
+
+// ─── Page ─────────────────────────────────────────────────────────
 
 export default function ProfilePage() {
   const { user, haptic } = useTelegram()
-  const { macros, setMacros, dbUser } = useAppStore()
-
+  const { macros, setMacros, dbUser, setDbUser } = useAppStore()
 
   const [showMacroCalc, setShowMacroCalc] = useState(false)
-  const [isSavingMacros, setIsSavingMacros] = useState(false)
+  const [friends, setFriends] = useState<FriendRow[]>([])
+  const [friendsLoading, setFriendsLoading] = useState(true)
+  const [isSaving, setIsSaving] = useState(false)
 
-  // Sort friends by auraPoints descending
-  const sortedFriends = [...MOCK_FRIENDS].sort((a, b) => b.auraPoints - a.auraPoints)
+  // ── Derived stats ────────────────────────────────────────────────
+  const level = dbUser?.aura_level ?? 1
+  const points = dbUser?.aura_points ?? 0
+  const streak = dbUser?.current_streak ?? 0
+  const nextXp = xpForNextLevel(level)
+  const prevXp = xpForNextLevel(level - 1)
+  const progress = points >= nextXp
+    ? 100
+    : Math.round(((points - prevXp) / (nextXp - prevXp)) * 100)
 
+  // ── Load friends ─────────────────────────────────────────────────
+  const loadFriends = useCallback(async () => {
+    const tgId = user?.id ?? dbUser?.tg_id
+    if (!tgId) { setFriendsLoading(false); return }
+    setFriendsLoading(true)
+    try {
+      const res = await fetch(`/api/friends?tg_id=${tgId}`)
+      if (res.ok) {
+        const { friends: data } = await res.json()
+        setFriends(data ?? [])
+      }
+    } catch (e) {
+      console.error('[ProfilePage] Failed to load friends', e)
+    } finally {
+      setFriendsLoading(false)
+    }
+  }, [user?.id, dbUser?.tg_id])
+
+  useEffect(() => { loadFriends() }, [loadFriends])
+
+  // ── Invite link (Telegram native share) ─────────────────────────
   const handleInvite = () => {
     haptic.medium()
-    const botUrl = `https://t.me/auraforge_bot?start=ref_${user?.id || 'demo'}`
-    const text = 'Заходи в AuraForge — прокачаем ауру вместе!'
-    const shareUrl = `https://t.me/share/url?url=${encodeURIComponent(botUrl)}&text=${encodeURIComponent(text)}`
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://auraforge.app'
+    const deepLink = `${appUrl}?startapp=invite_${user?.id ?? dbUser?.tg_id}`
+    const text = 'Догоняй — прокачиваю ауру в AuraForge 🔥'
+    const shareUrl = `https://t.me/share/url?url=${encodeURIComponent(deepLink)}&text=${encodeURIComponent(text)}`
     window.open(shareUrl, '_blank')
   }
 
-  const handleSaveMacros = async (res: MacroResult) => {
-    // 1. Сразу обновляем локальный стор (оптимистично)
+  // ── Save biometrics + recalculate macros ─────────────────────────
+  const handleSaveMacros = async (res: MacroResult, bio: BiometricData) => {
     setMacros(res)
     setShowMacroCalc(false)
     haptic.success()
 
-    // 2. Сохраняем цели питания в профиль пользователя в Supabase
     const tgId = user?.id ?? dbUser?.tg_id
     if (!tgId) return
-    setIsSavingMacros(true)
+    setIsSaving(true)
     try {
-      await fetch('/api/user', {
+      const resp = await fetch('/api/user', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           tg_id: tgId,
-          // Сохраняем КБЖУ-цели в поля профиля
-          // (поля уже есть в таблице users через колонки activity_level и weight_kg)
-          activity_level: dbUser?.activity_level ?? 'moderate',
+          age: bio.age,
+          gender: bio.gender,
+          height_cm: bio.height,
+          weight_kg: bio.weight,
+          activity_level: bio.activity,
         }),
       })
+      if (resp.ok) {
+        const { user: updated } = await resp.json()
+        if (updated) setDbUser(updated)
+      }
     } catch (e) {
-      console.error('[ProfilePage] Failed to sync macros to Supabase', e)
+      console.error('[ProfilePage] Failed to sync profile', e)
     } finally {
-      setIsSavingMacros(false)
+      setIsSaving(false)
     }
   }
 
+  // ── Build leaderboard (self + friends sorted) ────────────────────
+  const selfRow: FriendRow | null = dbUser
+    ? {
+        tg_id: dbUser.tg_id,
+        first_name: dbUser.first_name,
+        last_name: dbUser.last_name ?? null,
+        avatar_url: dbUser.avatar_url ?? null,
+        aura_points: dbUser.aura_points,
+        aura_level: dbUser.aura_level,
+        current_streak: dbUser.current_streak,
+        last_active_date: dbUser.last_active_date ?? null,
+      }
+    : null
+
+  const leaderboard: (FriendRow & { isSelf?: boolean })[] = [
+    ...(selfRow ? [{ ...selfRow, isSelf: true }] : []),
+    ...friends,
+  ].sort((a, b) => b.aura_points - a.aura_points)
+
+  // ─── Render ───────────────────────────────────────────────────────
   return (
-    <div className="min-h-screen bg-black text-zinc-100 pb-24">
-      {/* Header Profile Info */}
-      <div className="px-4 py-8 bg-zinc-950 border-b border-zinc-900">
-        <div className="flex items-center gap-4">
-          <div className="w-16 h-16 rounded-2xl bg-zinc-800 border border-zinc-700 flex items-center justify-center overflow-hidden">
+    <div className="page-enter min-h-full bg-black text-zinc-100 pb-32">
+
+      {/* ── Header ── */}
+      <div className="px-4 pt-10 pb-6">
+        {/* Avatar + name */}
+        <div className="flex items-center gap-4 mb-6">
+          <div className="w-16 h-16 rounded-2xl bg-zinc-900 border border-zinc-800 overflow-hidden flex-shrink-0 flex items-center justify-center">
             {user?.photo_url ? (
               <img src={user.photo_url} alt="avatar" className="w-full h-full object-cover grayscale" />
             ) : (
-              <UserPlus className="text-zinc-500" size={24} />
+              <UserPlus className="text-zinc-600" size={22} />
             )}
           </div>
-          <div className="flex-1">
-            <h1 className="text-xl font-black uppercase tracking-widest leading-none">
-              {user?.first_name || 'USERNAME'}
+          <div className="flex-1 min-w-0">
+            <p className="mono-heading mb-0.5">Профиль</p>
+            <h1 className="text-2xl font-black uppercase tracking-tight leading-tight truncate">
+              {user?.first_name ?? dbUser?.first_name ?? 'ANONYMOUS'}
             </h1>
-            <p className="text-[10px] text-zinc-500 font-mono mt-1">ID: {user?.id || '123456789'}</p>
+            {(user?.username ?? dbUser?.tg_username) && (
+              <p className="text-[10px] text-zinc-600 mono-number mt-0.5">
+                @{user?.username ?? dbUser?.tg_username}
+              </p>
+            )}
           </div>
-          <button className="w-10 h-10 rounded-xl bg-zinc-900 border border-zinc-800 flex items-center justify-center text-zinc-400 hover:text-zinc-100 transition-colors">
-            <Settings2 size={20} />
+          <button
+            onClick={() => { haptic.light(); setShowMacroCalc(true) }}
+            className="w-10 h-10 rounded-xl bg-zinc-900 border border-zinc-800 flex items-center justify-center text-zinc-500 hover:text-zinc-100 transition-colors flex-shrink-0"
+            aria-label="Настройки"
+          >
+            <Settings2 size={18} />
           </button>
+        </div>
+
+        {/* Stat tiles */}
+        <div className="flex gap-3 mb-4">
+          <StatTile label="Уровень" value={`LVL ${level}`} icon={Zap} />
+          <StatTile label="Аура XP" value={points.toLocaleString()} unit="XP" icon={Zap} />
+          <StatTile label="Стрик" value={streak} unit="д" icon={Flame} />
+        </div>
+
+        {/* XP progress bar */}
+        <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4">
+          <div className="flex justify-between text-[9px] font-bold text-zinc-600 uppercase tracking-widest mb-2">
+            <span>До уровня {level + 1}</span>
+            <span className="mono-number">{progress}%</span>
+          </div>
+          <div className="h-1.5 bg-zinc-800 rounded-full overflow-hidden">
+            <div
+              className="h-full bg-zinc-100 rounded-full transition-all duration-1000 ease-out"
+              style={{ width: `${progress}%` }}
+            />
+          </div>
+          <p className="text-[9px] text-zinc-700 mono-number mt-2">
+            {(nextXp - points).toLocaleString()} XP до следующего уровня
+          </p>
         </div>
       </div>
 
-      {/* Main Content Area */}
-      <div className="p-4 space-y-6">
-        
-        {/* Macro Section */}
-        <section className="space-y-3">
-          <div className="flex items-center justify-between px-1">
-            <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2">
-              <Target size={12} /> ПИТАНИЕ & ЦЕЛИ
-            </p>
-          </div>
-          
-          {macros ? (
-            <div className="p-5 rounded-2xl bg-zinc-900 border border-zinc-800">
-              <div className="flex justify-between items-end mb-4">
-                <div>
-                  <p className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest mb-1">СУТОЧНАЯ НОРМА</p>
-                  <p className="text-3xl font-black font-mono leading-none">{macros.targetCalories} <span className="text-xs text-zinc-500 uppercase tracking-widest">ККАЛ</span></p>
-                </div>
-                <button onClick={() => setShowMacroCalc(true)} className="text-[10px] text-zinc-400 uppercase tracking-widest border-b border-zinc-700 pb-0.5 hover:text-zinc-100">
-                  Изменить
-                </button>
+      {/* ── Nutrition / Biometrics ── */}
+      <div className="px-4 mb-6">
+        <div className="flex items-center gap-2 mb-3">
+          <Target size={11} className="text-zinc-600" />
+          <p className="mono-heading">Питание и биометрия</p>
+        </div>
+
+        {macros ? (
+          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5">
+            <div className="flex items-end justify-between mb-4">
+              <div>
+                <p className="mono-heading mb-1">Суточная норма</p>
+                <p className="text-3xl font-black mono-number leading-none">
+                  {macros.targetCalories}
+                  <span className="text-sm text-zinc-600 ml-1.5 font-bold uppercase tracking-wider">ккал</span>
+                </p>
               </div>
-              <div className="flex items-center gap-1.5 h-2 rounded-full overflow-hidden bg-black border border-zinc-800 mb-2">
-                <div style={{ width: `${(macros.macros.protein * 4 / macros.targetCalories) * 100}%` }} className="h-full bg-zinc-300" />
-                <div style={{ width: `${(macros.macros.carbs * 4 / macros.targetCalories) * 100}%` }} className="h-full bg-zinc-500" />
-                <div style={{ width: `${(macros.macros.fat * 9 / macros.targetCalories) * 100}%` }} className="h-full bg-zinc-700" />
-              </div>
-              <div className="flex justify-between text-[10px] font-mono text-zinc-400 font-bold">
-                <span>Б:{macros.macros.protein}г</span>
-                <span>У:{macros.macros.carbs}г</span>
-                <span>Ж:{macros.macros.fat}г</span>
-              </div>
+              <button
+                onClick={() => { haptic.light(); setShowMacroCalc(true) }}
+                className="text-[10px] text-zinc-500 uppercase tracking-widest border-b border-zinc-700 hover:text-zinc-100 transition-colors pb-0.5"
+              >
+                Изменить
+              </button>
             </div>
-          ) : (
-            <button
-              onClick={() => { haptic.light(); setShowMacroCalc(true); }}
-              className="w-full flex items-center justify-between p-5 rounded-2xl bg-zinc-900 border border-zinc-800 transition-transform active:scale-[0.98]"
-            >
-              <div className="text-left">
-                <p className="text-sm font-bold text-zinc-100 tracking-widest uppercase">НАСТРОИТЬ ЦЕЛЬ</p>
-                <p className="text-[10px] text-zinc-500 mt-1 uppercase">РАСЧЕТ БЖУ И КАЛОРИЙ</p>
-              </div>
-              <div className="w-8 h-8 rounded-full bg-zinc-800 flex items-center justify-center text-zinc-400">
-                <Settings2 size={14} />
-              </div>
-            </button>
-          )}
-        </section>
 
-        {/* Social / Leaderboard */}
-        <section className="space-y-4">
-          <div className="flex items-center justify-between px-1">
-            <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2">
-              <Users size={12} /> ДИНАМИКА ЛИДЕРОВ
-            </p>
-            <button
-              onClick={handleInvite}
-              className="text-[10px] font-bold text-emerald-500 uppercase tracking-widest border border-emerald-500/20 bg-emerald-500/10 px-3 py-1 rounded-full active:bg-emerald-500/20 transition-colors"
-            >
-              ПОЗВАТЬ БРО
-            </button>
+            {/* Macro ratio bar */}
+            <div className="h-2 rounded-full overflow-hidden bg-black border border-zinc-800 flex mb-3">
+              <div
+                className="h-full bg-zinc-200 transition-all"
+                style={{ width: `${(macros.macros.protein * 4 / macros.targetCalories) * 100}%` }}
+              />
+              <div
+                className="h-full bg-zinc-500 transition-all"
+                style={{ width: `${(macros.macros.carbs * 4 / macros.targetCalories) * 100}%` }}
+              />
+              <div
+                className="h-full bg-zinc-700 transition-all"
+                style={{ width: `${(macros.macros.fat * 9 / macros.targetCalories) * 100}%` }}
+              />
+            </div>
+
+            {/* Macro pills */}
+            <div className="grid grid-cols-3 gap-2">
+              {[
+                { label: 'Белки', value: macros.macros.protein },
+                { label: 'Углеводы', value: macros.macros.carbs },
+                { label: 'Жиры', value: macros.macros.fat },
+              ].map(({ label, value }) => (
+                <div key={label} className="bg-zinc-950 border border-zinc-800 rounded-xl p-3 text-center">
+                  <p className="text-[9px] font-bold text-zinc-600 uppercase tracking-widest mb-1">{label}</p>
+                  <p className="text-base font-black text-zinc-100 mono-number">{value}<span className="text-[10px] text-zinc-600 ml-0.5">г</span></p>
+                </div>
+              ))}
+            </div>
           </div>
-
-          <div className="space-y-3">
-            {sortedFriends.map((friend, index) => (
-              <div key={friend.id} className="p-4 rounded-2xl bg-zinc-900 border border-zinc-800 flex items-center gap-4 relative overflow-hidden group">
-                
-                {/* Rank Badge (1st place gets trophy) */}
-                <div className="absolute top-0 left-0 bottom-0 w-8 bg-zinc-950 border-r border-zinc-800 flex items-center justify-center">
-                  {index === 0 ? (
-                    <Trophy size={14} className="text-zinc-300" />
-                  ) : (
-                    <span className="text-[10px] font-bold text-zinc-600 font-mono">#{index + 1}</span>
-                  )}
-                </div>
-
-                {/* Avatar with online/completed indicator */}
-                <div className="relative ml-8">
-                  <img src={friend.avatarUrl} alt={friend.name} className="w-12 h-12 rounded-xl bg-zinc-800 object-cover" />
-                  {(friend.isOnline || friend.allHabitsDone) && (
-                    <div className="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-zinc-900 flex items-center justify-center">
-                      <div className="w-2 h-2 rounded-full bg-emerald-500" />
-                    </div>
-                  )}
-                </div>
-
-                {/* Info */}
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <p className="font-bold text-sm text-zinc-100 truncate">{friend.name}</p>
-                    <span className="px-1.5 py-0.5 rounded bg-zinc-800 text-[9px] font-bold text-zinc-400 font-mono tracking-widest">
-                      LVL {friend.level}
-                    </span>
-                  </div>
-                  <p className="text-[10px] text-zinc-500 mt-1 truncate">{friend.progressText}</p>
-                </div>
-
-                {/* Stats */}
-                <div className="text-right">
-                  <div className="flex items-center justify-end gap-1 mb-1">
-                    <Flame size={12} className={friend.streak > 10 ? "text-zinc-100" : "text-zinc-600"} />
-                    <span className="font-mono text-sm font-black">{friend.auraPoints}</span>
-                  </div>
-                  <p className={`text-[9px] font-bold tracking-widest uppercase font-mono ${friend.weeklyChange > 0 ? 'text-zinc-400' : 'text-zinc-600'}`}>
-                    {friend.weeklyChange > 0 ? '+' : ''}{friend.weeklyChange}% 7Д
-                  </p>
-                </div>
-              </div>
-            ))}
-          </div>
-        </section>
+        ) : (
+          <button
+            onClick={() => { haptic.light(); setShowMacroCalc(true) }}
+            className="w-full flex items-center justify-between p-5 rounded-2xl bg-zinc-900 border border-zinc-800 active:scale-[0.98] transition-all"
+          >
+            <div className="text-left">
+              <p className="text-sm font-bold text-zinc-100 uppercase tracking-wider">Настроить профиль</p>
+              <p className="text-[10px] text-zinc-600 mt-1 uppercase tracking-wide">Расчёт КБЖУ по биометрии</p>
+            </div>
+            <ChevronRight size={18} className="text-zinc-600" />
+          </button>
+        )}
       </div>
 
+      {/* ── Leaderboard / Friends ── */}
+      <div className="px-4">
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-2">
+            <Users size={11} className="text-zinc-600" />
+            <p className="mono-heading">Aura Board</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => { haptic.light(); loadFriends() }}
+              className="w-7 h-7 rounded-lg bg-zinc-900 border border-zinc-800 flex items-center justify-center text-zinc-600 hover:text-zinc-100 transition-colors"
+              aria-label="Обновить"
+            >
+              <RefreshCw size={12} />
+            </button>
+            <button
+              onClick={handleInvite}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] font-bold text-emerald-400 uppercase tracking-widest border border-emerald-500/20 bg-emerald-500/10 active:bg-emerald-500/20 transition-colors"
+            >
+              <UserPlus size={11} />
+              Позвать бро
+            </button>
+          </div>
+        </div>
+
+        {friendsLoading ? (
+          <div className="space-y-2">
+            {[1, 2, 3].map(i => (
+              <div key={i} className="h-16 rounded-2xl bg-zinc-900 border border-zinc-800 animate-pulse" />
+            ))}
+          </div>
+        ) : leaderboard.length === 0 ? (
+          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-8 text-center">
+            <Users size={32} className="text-zinc-700 mx-auto mb-3" />
+            <p className="text-sm font-bold text-zinc-500 uppercase tracking-widest mb-1">Список пуст</p>
+            <p className="text-[10px] text-zinc-700 leading-relaxed">
+              Позови друзей и сравнивай результаты
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {leaderboard.map((friend, index) => (
+              <FriendRow
+                key={friend.tg_id}
+                friend={friend}
+                rank={index + 1}
+                isSelf={friend.isSelf}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* ── Macro Calculator Modal ── */}
       {showMacroCalc && (
         <MacroCalculatorModal
           onClose={() => setShowMacroCalc(false)}
           onSave={handleSaveMacros}
         />
+      )}
+
+      {/* Saving indicator */}
+      {isSaving && (
+        <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-full bg-zinc-900 border border-zinc-700 text-[10px] font-bold text-zinc-400 uppercase tracking-widest">
+          Сохраняем…
+        </div>
       )}
     </div>
   )

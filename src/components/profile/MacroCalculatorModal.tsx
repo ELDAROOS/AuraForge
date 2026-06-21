@@ -10,9 +10,18 @@ import {
   type MacroResult
 } from '@/lib/calculations'
 
+export interface BiometricData {
+  gender: Gender
+  age: number
+  weight: number
+  height: number
+  activity: ActivityLevel
+  goal: Goal
+}
+
 interface MacroCalculatorModalProps {
   onClose: () => void
-  onSave: (result: MacroResult) => void
+  onSave: (result: MacroResult, bio: BiometricData) => void
 }
 
 export function MacroCalculatorModal({ onClose, onSave }: MacroCalculatorModalProps) {
@@ -33,7 +42,7 @@ export function MacroCalculatorModal({ onClose, onSave }: MacroCalculatorModalPr
 
   const handleSave = () => {
     const result = calculateMacros(weight, height, age, gender, activity, goal)
-    onSave(result)
+    onSave(result, { gender, age, weight, height, activity, goal })
   }
 
   const renderStepContent = () => {
