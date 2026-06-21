@@ -1,6 +1,7 @@
 'use client'
 
 import { create } from 'zustand'
+import { persist, createJSONStorage } from 'zustand/middleware'
 import { immer } from 'zustand/middleware/immer'
 import { DbUser } from '@/types/database'
 import { TelegramUser } from '@/types/telegram'
@@ -29,34 +30,47 @@ interface AppState {
 }
 
 export const useAppStore = create<AppState>()(
-  immer((set) => ({
-    dbUser: null,
-    tgUser: null,
-    isLoading: true,
-    pendingXp: 0,
-    macros: null,
+  persist(
+    immer((set) => ({
+      dbUser: null,
+      tgUser: null,
+      isLoading: true,
+      pendingXp: 0,
+      macros: null,
 
-    setDbUser: (user) => set((state) => { state.dbUser = user }),
-    setTgUser: (user) => set((state) => { state.tgUser = user }),
-    setLoading: (loading) => set((state) => { state.isLoading = loading }),
+      setDbUser: (user) => set((state) => { state.dbUser = user }),
+      setTgUser: (user) => set((state) => { state.tgUser = user }),
+      setLoading: (loading) => set((state) => { state.isLoading = loading }),
 
-    addPendingXp: (amount) => set((state) => {
-      state.pendingXp += amount
-    }),
+      addPendingXp: (amount) => set((state) => {
+        state.pendingXp += amount
+      }),
 
-    flushPendingXp: () => set((state) => {
-      state.pendingXp = 0
-    }),
+      flushPendingXp: () => set((state) => {
+        state.pendingXp = 0
+      }),
 
-    updateAuraPoints: (points, level) => set((state) => {
-      if (state.dbUser) {
-        state.dbUser.aura_points = points
-        state.dbUser.aura_level = level
-      }
-    }),
+      updateAuraPoints: (points, level) => set((state) => {
+        if (state.dbUser) {
+          state.dbUser.aura_points = points
+          state.dbUser.aura_level = level
+        }
+      }),
 
-    setMacros: (macros) => set((state) => {
-      state.macros = macros
-    }),
-  }))
+      setMacros: (macros) => set((state) => {
+        state.macros = macros
+      }),
+    })),
+    {
+      name: 'auraforge-store',       // ключ в localStorage
+      storage: createJSONStorage(() => localStorage),
+      // tgUser не сохраняем — он всегда приходит заново из Telegram SDK
+      // isLoading тоже не сохраняем — всегда стартует с true
+      partialize: (state) => ({
+        dbUser: state.dbUser,
+        macros: state.macros,
+        pendingXp: state.pendingXp,
+      }),
+    }
+  )
 )

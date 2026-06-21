@@ -84,9 +84,11 @@ export function DailyRoutine() {
     }
 
     // 4. Фоновый запрос к Supabase
-    if (tgUser && habit.id !== '1' && habit.id !== '2' && habit.id !== '3') {
+    // Пропускаем мок-привычки (у них id не UUID, а '1','2','3')
+    const isRealHabit = tgUser && /^[0-9a-f-]{36}$/.test(habit.id)
+    if (isRealHabit) {
       try {
-        await fetch('/api/logs', {
+        const resp = await fetch('/api/logs', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -95,6 +97,11 @@ export function DailyRoutine() {
             status: 'completed'
           })
         })
+        if (resp.ok) {
+          // Обновляем XP из ответа сервера (авторитетный источник)
+          const { aura } = await resp.json()
+          if (aura) updateAuraPoints(aura.points, aura.level)
+        }
       } catch (error) {
         console.error('Failed to log habit in Supabase', error)
       }

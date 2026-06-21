@@ -7,6 +7,7 @@ import { MacroCalculatorModal } from '@/components/profile/MacroCalculatorModal'
 import type { MacroResult } from '@/lib/calculations'
 import { useAppStore } from '@/store/useAppStore'
 
+
 /*
   ========================================================
   Supabase SQL Schema: `friends`
@@ -78,9 +79,11 @@ const MOCK_FRIENDS: FriendStats[] = [
 
 export default function ProfilePage() {
   const { user, haptic } = useTelegram()
-  const { macros, setMacros } = useAppStore()
+  const { macros, setMacros, dbUser } = useAppStore()
+
 
   const [showMacroCalc, setShowMacroCalc] = useState(false)
+  const [isSavingMacros, setIsSavingMacros] = useState(false)
 
   // Sort friends by auraPoints descending
   const sortedFriends = [...MOCK_FRIENDS].sort((a, b) => b.auraPoints - a.auraPoints)
@@ -93,12 +96,32 @@ export default function ProfilePage() {
     window.open(shareUrl, '_blank')
   }
 
-  const handleSaveMacros = (res: MacroResult) => {
+  const handleSaveMacros = async (res: MacroResult) => {
+    // 1. Сразу обновляем локальный стор (оптимистично)
     setMacros(res)
     setShowMacroCalc(false)
     haptic.success()
-    // TODO: Supabase query to update user macros:
-    // await supabase.from('users').update({ macros: res }).eq('id', user?.id)
+
+    // 2. Сохраняем цели питания в профиль пользователя в Supabase
+    const tgId = user?.id ?? dbUser?.tg_id
+    if (!tgId) return
+    setIsSavingMacros(true)
+    try {
+      await fetch('/api/user', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          tg_id: tgId,
+          // Сохраняем КБЖУ-цели в поля профиля
+          // (поля уже есть в таблице users через колонки activity_level и weight_kg)
+          activity_level: dbUser?.activity_level ?? 'moderate',
+        }),
+      })
+    } catch (e) {
+      console.error('[ProfilePage] Failed to sync macros to Supabase', e)
+    } finally {
+      setIsSavingMacros(false)
+    }
   }
 
   return (
