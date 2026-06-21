@@ -6,34 +6,37 @@ import { useAppStore } from '@/store/useAppStore'
 import { calculateTdee } from '@/lib/nutrition/tdee'
 
 export default function NutritionPage() {
-  const { haptic } = useTelegram()
+  const { haptic, tgUser } = useTelegram()
   const { dbUser, macros } = useAppStore()
 
-  // ── Daily targets from user profile (Global macros > calculateTdee > fallback) ──
+  // tg_id для API-запросов: из Telegram SDK или из персистентного стора
+  const tgId = tgUser?.id ?? dbUser?.tg_id ?? null
+
+  // ── Daily targets: macros store → calculateTdee → fallback ──────
   let targetKcal = 2000, targetP = 150, targetC = 250, targetF = 65
 
   if (macros) {
     targetKcal = macros.targetCalories
-    targetP = macros.macros.protein
-    targetC = macros.macros.carbs
-    targetF = macros.macros.fat
+    targetP    = macros.macros.protein
+    targetC    = macros.macros.carbs
+    targetF    = macros.macros.fat
   } else if (dbUser?.age && dbUser.gender && dbUser.height_cm && dbUser.weight_kg) {
-    const tdeeTarget = calculateTdee({
-      age: dbUser.age,
-      gender: dbUser.gender as 'male' | 'female',
-      heightCm: dbUser.height_cm,
-      weightKg: Number(dbUser.weight_kg),
-      activityLevel: dbUser.activity_level as Parameters<typeof calculateTdee>[0]['activityLevel'],
-      goal: 'maintain',
+    const tdeeResult = calculateTdee({
+      age:           dbUser.age,
+      gender:        dbUser.gender as 'male' | 'female',
+      heightCm:      dbUser.height_cm,
+      weightKg:      Number(dbUser.weight_kg),
+      activityLevel: (dbUser.activity_level ?? 'moderate') as Parameters<typeof calculateTdee>[0]['activityLevel'],
+      goal:          'maintain',
     })
-    targetKcal = tdeeTarget.target
-    targetP = tdeeTarget.protein
-    targetC = tdeeTarget.carbs
-    targetF = tdeeTarget.fat
+    targetKcal = tdeeResult.target
+    targetP    = tdeeResult.protein
+    targetC    = tdeeResult.carbs
+    targetF    = tdeeResult.fat
   }
 
   return (
-    <div className="page-enter min-h-full pb-28">
+    <div className="page-enter min-h-full">
       {/* Header */}
       <div className="px-4 pt-8 pb-5">
         <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-1">МОДУЛЬ</p>
@@ -42,9 +45,10 @@ export default function NutritionPage() {
         </h1>
       </div>
 
-      {/* Tracker */}
+      {/* Tracker — получает tgId для fetch/save */}
       <div className="px-4">
         <NutritionTracker
+          tgId={tgId}
           calorieTarget={targetKcal}
           proteinTarget={targetP}
           carbsTarget={targetC}
