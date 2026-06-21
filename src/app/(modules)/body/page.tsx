@@ -1,8 +1,21 @@
+'use client'
+
+import { useState } from 'react'
+import { WorkoutProgram } from '@/lib/workouts-db'
+import { WorkoutDashboard } from '@/components/body/WorkoutDashboard'
+import { WorkoutPlayer } from '@/components/body/WorkoutPlayer'
+
 export default function BodyPage() {
-  return (
-    <div className="page-enter px-4 pt-6">
-      <h1 className="text-2xl font-bold" style={{ color: 'rgb(6 182 212)' }}>Тело и осанка</h1>
-      <p className="text-sm text-[rgb(var(--text-muted))] mt-2">Скоро: тренировки и контроль осанки</p>
-    </div>
-  )
+  const [activeWorkout, setActiveWorkout] = useState<WorkoutProgram | null>(null)
+
+  if (activeWorkout) {
+    return (
+      <WorkoutPlayer
+        workout={activeWorkout}
+        onExit={() => setActiveWorkout(null)}
+      />
+    )
+  }
+
+  return <WorkoutDashboard onSelect={setActiveWorkout} />
 }
