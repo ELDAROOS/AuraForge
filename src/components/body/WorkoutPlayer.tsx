@@ -3,13 +3,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { WorkoutProgram, Exercise } from '@/lib/workouts-db'
 import { useAppStore } from '@/store/useAppStore'
+import { useTelegram } from '@/hooks/useTelegram'
 import { X, Pause, Play, SkipForward, CheckCircle, Zap } from 'lucide-react'
-
-// ─── Stub for Aura XP integration ─────────────────────────────────
-function addAuraPoints(_amount: number) {
-  // TODO: wire to Supabase via useAppStore.addPendingXp
-  console.log(`[AuraForge] +${_amount} XP awarded`)
-}
+import confetti from 'canvas-confetti'
 
 // ─── Circular SVG Timer ───────────────────────────────────────────
 const RADIUS = 54
@@ -105,21 +101,73 @@ function RepsDisplay({ count, onDone }: RepsDisplayProps) {
 
 // ─── Completion Screen ────────────────────────────────────────────
 interface CompletionScreenProps {
-  xpReward: number
+  workout: WorkoutProgram
   onClose: () => void
 }
 
-function CompletionScreen({ xpReward, onClose }: CompletionScreenProps) {
-  const addPendingXp = useAppStore((s) => s.addPendingXp)
+const getTodayKey = () => {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
+}
+
+function CompletionScreen({ workout, onClose }: CompletionScreenProps) {
+  const { dbUser, setDbUser } = useAppStore()
+  const { haptic } = useTelegram()
+  
+  const [saving, setSaving] = useState(true)
 
   useEffect(() => {
-    addAuraPoints(xpReward)
-    addPendingXp(xpReward)
+    haptic.success()
+    confetti({
+      particleCount: 150,
+      spread: 80,
+      origin: { y: 0.6 },
+      colors: ['#ffffff', '#a1a1aa', '#3f3f46'],
+      disableForReducedMotion: true,
+    })
+
+    const saveWorkout = async () => {
+      if (!dbUser?.tg_id) {
+        setSaving(false)
+        return
+      }
+
+      // Save to local storage tracking
+      const storageKey = `body_${dbUser.tg_id}_${getTodayKey()}`
+      const saved = JSON.parse(localStorage.getItem(storageKey) || '[]')
+      if (!saved.includes(workout.id)) {
+        saved.push(workout.id)
+        localStorage.setItem(storageKey, JSON.stringify(saved))
+      }
+
+      // Award XP to database
+      try {
+        const res = await fetch('/api/xp', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 
+            tg_id: dbUser.tg_id, 
+            amount: workout.xpReward, 
+            reason: `workout_completed_${workout.id}` 
+          })
+        })
+        if (res.ok) {
+          const { user } = await res.json()
+          if (user) setDbUser(user)
+        }
+      } catch (e) {
+        console.error('Failed to award XP', e)
+      } finally {
+        setSaving(false)
+      }
+    }
+
+    saveWorkout()
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center p-4 bg-black/60 backdrop-blur-sm">
+    <div className="fixed inset-0 z-50 flex items-end justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-300">
       <div
         className="w-full max-w-sm rounded-3xl border border-zinc-700/50 bg-zinc-900/90 backdrop-blur-md p-8 flex flex-col items-center gap-5"
         style={{ animation: 'fadeSlideUp 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards' }}
@@ -139,22 +187,27 @@ function CompletionScreen({ xpReward, onClose }: CompletionScreenProps) {
         {/* XP chip */}
         <div className="px-6 py-3 rounded-2xl bg-zinc-800 border border-zinc-700">
           <span className="text-3xl font-black text-zinc-100 mono-number">
-            +{xpReward}
+            +{workout.xpReward}
           </span>
           <span className="text-sm font-bold text-zinc-400 ml-2 uppercase tracking-widest">
-            Points
+            XP
           </span>
         </div>
 
         <p className="text-xs text-zinc-500 text-center leading-relaxed">
-          XP будет записан в твой профиль. Не останавливайся.
+          {saving ? 'Сохраняем прогресс...' : 'Очки начислены. Так держать!'}
         </p>
 
         <button
           onClick={onClose}
-          className="w-full py-4 rounded-2xl bg-zinc-100 text-black font-bold uppercase tracking-widest text-sm transition-all active:scale-95 hover:bg-white"
+          disabled={saving}
+          className={`w-full py-4 rounded-2xl font-bold uppercase tracking-widest text-sm transition-all ${
+            saving 
+              ? 'bg-zinc-800 text-zinc-500 cursor-not-allowed' 
+              : 'bg-zinc-100 text-black active:scale-95 hover:bg-white'
+          }`}
         >
-          Закрыть
+          {saving ? 'Сохранение...' : 'Закрыть'}
         </button>
       </div>
     </div>
@@ -193,6 +246,7 @@ interface WorkoutPlayerProps {
 }
 
 export function WorkoutPlayer({ workout, onExit }: WorkoutPlayerProps) {
+  const { haptic } = useTelegram()
   const [exerciseIndex, setExerciseIndex] = useState(0)
   const [timeRemaining, setTimeRemaining] = useState<number>(0)
   const [isPaused, setIsPaused] = useState(false)
@@ -209,12 +263,10 @@ export function WorkoutPlayer({ workout, onExit }: WorkoutPlayerProps) {
       setTimeRemaining(exercise.count)
       setIsPaused(false)
     }
-    // cleanup on unmount
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current)
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [exerciseIndex])
+  }, [exerciseIndex, isTimeBased, exercise.count])
 
   // Countdown logic
   useEffect(() => {
@@ -226,9 +278,11 @@ export function WorkoutPlayer({ workout, onExit }: WorkoutPlayerProps) {
         setTimeRemaining((t) => {
           if (t <= 1) {
             clearInterval(intervalRef.current!)
+            haptic.medium() // Trigger haptic when timer ends
             handleNext()
             return 0
           }
+          if (t <= 4) haptic.light() // Light haptics for last 3 seconds
           return t - 1
         })
       }, 1000)
@@ -237,9 +291,10 @@ export function WorkoutPlayer({ workout, onExit }: WorkoutPlayerProps) {
       if (intervalRef.current) clearInterval(intervalRef.current)
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isPaused, isTimeBased, exerciseIndex])
+  }, [isPaused, isTimeBased, exerciseIndex, haptic])
 
   function handleNext() {
+    haptic.light()
     if (intervalRef.current) clearInterval(intervalRef.current)
     if (isLastExercise) {
       setIsComplete(true)
@@ -249,15 +304,16 @@ export function WorkoutPlayer({ workout, onExit }: WorkoutPlayerProps) {
   }
 
   function handleTogglePause() {
+    haptic.light()
     setIsPaused((p) => !p)
   }
 
   return (
-    <div className="page-enter flex flex-col min-h-full bg-black">
+    <div className="page-enter flex flex-col min-h-full bg-black pb-8">
       {/* ── Top bar ── */}
       <div className="flex items-center justify-between px-4 pt-6 pb-4">
         <button
-          onClick={onExit}
+          onClick={() => { haptic.light(); onExit() }}
           className="w-9 h-9 rounded-full bg-zinc-900 border border-zinc-800 flex items-center justify-center transition-all active:scale-90"
           aria-label="Завершить тренировку"
         >
@@ -327,7 +383,7 @@ export function WorkoutPlayer({ workout, onExit }: WorkoutPlayerProps) {
       </div>
 
       {/* ── Controls ── */}
-      <div className="px-4 pt-4 pb-8 flex gap-3">
+      <div className="px-4 pt-4 flex gap-3">
         {/* Pause (only for timed exercises) */}
         {isTimeBased && (
           <button
@@ -364,7 +420,7 @@ export function WorkoutPlayer({ workout, onExit }: WorkoutPlayerProps) {
 
       {/* ── Completion overlay ── */}
       {isComplete && (
-        <CompletionScreen xpReward={workout.xpReward} onClose={onExit} />
+        <CompletionScreen workout={workout} onClose={onExit} />
       )}
     </div>
   )
