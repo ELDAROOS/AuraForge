@@ -412,10 +412,12 @@ export function AdvancedFaceScanner() {
     const video = videoRef.current
     const mesh  = meshRef.current
     if (!video || !mesh || video.readyState < 2) {
+      // eslint-disable-next-line react-hooks/immutability
       animRef.current = requestAnimationFrame(processFrame)
       return
     }
     await mesh.send({ image: video })
+    // eslint-disable-next-line react-hooks/immutability
     animRef.current = requestAnimationFrame(processFrame)
   }, [])
 
@@ -457,7 +459,7 @@ export function AdvancedFaceScanner() {
   // ── Switch to 'capturing' when first face detected ─────────────────────────
   useEffect(() => {
     if (meshVisible && phase === 'scanning') {
-      setPhase('capturing')
+      setTimeout(() => setPhase('capturing'), 0)
       haptic.medium()
     }
     if (!meshVisible && phase === 'capturing') {

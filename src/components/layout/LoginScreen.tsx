@@ -1,19 +1,16 @@
 'use client'
 
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState } from 'react'
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function LoginScreen({ onLogin }: { onLogin: (user: any) => void }) {
-  const [token, setToken] = useState<string>('')
+  const [token] = useState<string>(() => Math.random().toString(36).substring(2, 15))
 
   useEffect(() => {
-    // Generate a unique token for this session
-    const randomToken = Math.random().toString(36).substring(2, 15)
-    setToken(randomToken)
-
     // Poll the server to check if the bot received this token
     const interval = setInterval(async () => {
       try {
-        const res = await fetch(`/api/auth/status?token=${randomToken}`)
+        const res = await fetch(`/api/auth/status?token=${token}`)
         if (res.ok) {
           const data = await res.json()
           if (data.status === 'success' && data.user) {
@@ -27,7 +24,7 @@ export function LoginScreen({ onLogin }: { onLogin: (user: any) => void }) {
     }, 2000)
 
     return () => clearInterval(interval)
-  }, [onLogin])
+  }, [onLogin, token])
 
   return (
     <div className="flex flex-col items-center justify-center min-h-screen bg-black px-6 pb-20">

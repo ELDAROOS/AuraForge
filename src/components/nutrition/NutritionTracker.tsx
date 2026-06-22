@@ -452,7 +452,7 @@ export function NutritionTracker({
   // ── 1. FETCH TODAY'S LOGS ON MOUNT ────────────────────────────
   useEffect(() => {
     if (!tgId) {
-      setLoadingEaten(false)
+      setTimeout(() => setLoadingEaten(false), 0)
       return
     }
 

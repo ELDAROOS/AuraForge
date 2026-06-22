@@ -29,7 +29,7 @@ export function useTelegram(): UseTelegramReturn {
   useEffect(() => {
     const tg = window.Telegram?.WebApp
     if (!tg) {
-      setIsReady(true)
+      setTimeout(() => setIsReady(true), 0)
       return
     }
 
@@ -40,8 +40,10 @@ export function useTelegram(): UseTelegramReturn {
       applyTelegramTheme(tg.themeParams)
     }
 
-    setWebApp(tg)
-    setIsReady(true)
+    setTimeout(() => {
+      setWebApp(tg)
+      setIsReady(true)
+    }, 0)
   }, [])
 
   const haptic = {

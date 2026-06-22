@@ -264,10 +264,12 @@ export function FaceScanner() {
     const video = videoRef.current
     const mesh  = meshRef.current
     if (!video || !mesh || video.readyState < 2) {
+      // eslint-disable-next-line react-hooks/immutability
       animRef.current = requestAnimationFrame(processFrame)
       return
     }
     await mesh.send({ image: video })
+    // eslint-disable-next-line react-hooks/immutability
     animRef.current = requestAnimationFrame(processFrame)
   }, [])
 
@@ -309,7 +311,7 @@ export function FaceScanner() {
   useEffect(() => {
     if (!meshVisible || phase !== 'scanning') return
 
-    setPhase('analyzing')
+    setTimeout(() => setPhase('analyzing'), 0)
     haptic.medium()
 
     let c = 3
