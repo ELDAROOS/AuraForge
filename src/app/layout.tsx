@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from 'next'
 import { Inter } from 'next/font/google'
+import Script from 'next/script'
 import './globals.css'
 import { BottomNav } from '@/components/layout/BottomNav'
 import { TelegramProvider } from '@/components/layout/TelegramProvider'
@@ -28,6 +29,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="ru" suppressHydrationWarning>
       <body className={`${inter.variable} font-sans antialiased bg-black`}>
+        <Script src="https://telegram.org/js/telegram-web-app.js" strategy="beforeInteractive" />
         <TelegramProvider>
           {/*
             app-shell: занимает 100% высоты экрана, flex-col.
