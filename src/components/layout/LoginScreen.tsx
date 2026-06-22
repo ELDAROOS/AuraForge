@@ -19,8 +19,7 @@ export function LoginScreen({ onLogin }: { onLogin: (user: any) => void }) {
     script.setAttribute('data-onauth', 'onTelegramAuth(user)')
     script.setAttribute('data-request-access', 'write')
     
-    if (containerRef.current) {
-      containerRef.current.innerHTML = ''
+    if (containerRef.current && containerRef.current.children.length === 0) {
       containerRef.current.appendChild(script)
     }
   }, [onLogin])
