@@ -2,18 +2,20 @@
 
 import dynamic from 'next/dynamic'
 import { useState } from 'react'
-import { Scan, Timer, Moon, Sun, ChevronRight, Loader2 } from 'lucide-react'
+import { Scan, Timer, Moon, Sun, Loader2, Check } from 'lucide-react'
 import { useTelegram } from '@/hooks/useTelegram'
 
-// ── Dynamic import — MediaPipe is browser-only, never SSR ──────
-const FaceScanner = dynamic(
-  () => import('@/components/face/FaceScanner').then(m => ({ default: m.FaceScanner })),
+// ── Dynamic import — MediaPipe is browser-only ──────────────────
+const AdvancedFaceScanner = dynamic(
+  () => import('@/components/face/AdvancedFaceScanner').then(m => ({ default: m.AdvancedFaceScanner })),
   {
     ssr: false,
     loading: () => (
-      <div className="flex flex-col items-center justify-center gap-3 py-16">
-        <Loader2 size={28} className="animate-spin text-[rgb(var(--color-aura-purple))]" />
-        <p className="text-sm text-[rgb(var(--text-muted))]">Загружаем Face Scanner…</p>
+      <div className="flex flex-col items-center justify-center gap-4 py-20 px-4">
+        <Loader2 size={32} className="animate-spin text-zinc-500" />
+        <p className="text-[10px] font-bold text-zinc-600 uppercase tracking-widest">
+          Инициализация сканера...
+        </p>
       </div>
     ),
   }
@@ -46,8 +48,8 @@ const MEWING_EXERCISES = [
 type Tab = 'scanner' | 'skincare' | 'mewing'
 
 const TABS: { id: Tab; label: string; icon: typeof Scan }[] = [
-  { id: 'scanner',  label: 'Скан',    icon: Scan  },
-  { id: 'skincare', label: 'Уход',    icon: Moon  },
+  { id: 'scanner',  label: 'Скан',       icon: Scan  },
+  { id: 'skincare', label: 'Уход',       icon: Moon  },
   { id: 'mewing',   label: 'Упражнения', icon: Timer },
 ]
 
@@ -66,38 +68,40 @@ function SkincareTab() {
         <div
           key={key}
           onClick={() => toggle(key)}
-          className={`flex items-center gap-3 p-3.5 rounded-2xl cursor-pointer transition-all duration-200 border ${
+          className={`flex items-center gap-3 p-4 rounded-2xl cursor-pointer transition-all duration-200 border ${
             done
-              ? 'bg-[rgba(var(--color-aura-purple),0.06)] border-[rgba(var(--color-aura-purple),0.2)]'
-              : 'bg-[rgb(var(--bg-card))] border-[rgba(var(--border-subtle),0.6)]'
+              ? 'bg-zinc-800/40 border-zinc-700/50'
+              : 'bg-zinc-900 border-zinc-800'
           }`}
         >
-          <span className={`text-xl transition-all ${done ? 'opacity-40' : ''}`}>{emoji}</span>
-          <p className={`text-sm font-medium flex-1 transition-colors ${
-            done ? 'text-[rgb(var(--text-muted))] line-through' : 'text-[rgb(var(--text-primary))]'
-          }`}>{label}</p>
-          <div className={`habit-check flex-shrink-0 ${done ? 'habit-check--done' : ''}`}>
-            {done && <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-              <path d="M2 6L5 9L10 3" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
-            </svg>}
+          <span className={`text-xl transition-all ${done ? 'opacity-40 grayscale' : ''}`}>{emoji}</span>
+          <p className={`text-sm font-bold flex-1 transition-colors ${
+            done ? 'text-zinc-500 line-through' : 'text-zinc-100'
+          }`}>
+            {label}
+          </p>
+          <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all flex-shrink-0 ${
+            done ? 'bg-zinc-100 border-zinc-100 text-black' : 'border-zinc-700 bg-zinc-800/50'
+          }`}>
+            {done && <Check size={14} strokeWidth={4} />}
           </div>
         </div>
       )
     })
 
   return (
-    <div className="px-4 space-y-5 pb-6">
+    <div className="px-4 space-y-6 pb-6 mt-4">
       <div>
         <div className="flex items-center gap-2 mb-3">
-          <Sun size={14} className="text-amber-400" />
-          <p className="text-xs font-bold text-[rgb(var(--text-secondary))] uppercase tracking-widest">Утренняя рутина</p>
+          <Sun size={14} className="text-zinc-500" />
+          <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Утренняя рутина</p>
         </div>
         <div className="space-y-2">{renderList(SKINCARE_MORNING, 'am')}</div>
       </div>
       <div>
         <div className="flex items-center gap-2 mb-3">
-          <Moon size={14} className="text-[rgb(var(--color-aura-purple))]" />
-          <p className="text-xs font-bold text-[rgb(var(--text-secondary))] uppercase tracking-widest">Вечерняя рутина</p>
+          <Moon size={14} className="text-zinc-500" />
+          <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Вечерняя рутина</p>
         </div>
         <div className="space-y-2">{renderList(SKINCARE_EVENING, 'pm')}</div>
       </div>
@@ -116,14 +120,14 @@ function MewingTab() {
     setActiveTimer(label)
     setElapsed(0)
     const interval = setInterval(() => setElapsed(e => e + 1), 1000)
-    // Store interval in closure; stop on re-click
+    
     const stop = () => {
       clearInterval(interval)
       setActiveTimer(null)
       haptic.success()
     }
     setTimeout(stop, 600_000) // max 10 min
-    // Expose stop fn — simplistic for MVP
+    
     ;(window as unknown as Record<string, unknown>).__stopTimer__ = stop
   }
 
@@ -132,34 +136,48 @@ function MewingTab() {
     stop?.()
   }
 
-  const fmtTime = (s: number) => `${Math.floor(s / 60).toString().padStart(2, '0')}:${(s % 60).toString().padStart(2, '0')}`
+  const fmtTime = (s: number) => 
+    `${Math.floor(s / 60).toString().padStart(2, '0')}:${(s % 60).toString().padStart(2, '0')}`
 
   return (
-    <div className="px-4 space-y-3 pb-6">
+    <div className="px-4 space-y-3 pb-6 mt-4">
       {activeTimer && (
-        <div className="card-aura p-4 mb-2 text-center">
-          <p className="text-xs text-[rgb(var(--text-muted))] mb-1 uppercase tracking-widest">Таймер активен</p>
-          <p className="text-4xl font-black gradient-text">{fmtTime(elapsed)}</p>
-          <p className="text-sm text-[rgb(var(--text-secondary))] mt-1">{activeTimer}</p>
-          <button onClick={stopTimer} className="btn-ghost mt-3 text-xs">⏹ Завершить</button>
+        <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 mb-4 text-center">
+          <p className="text-[10px] text-emerald-500 font-bold mb-2 uppercase tracking-widest animate-pulse">
+            Таймер активен
+          </p>
+          <p className="text-5xl font-black text-zinc-100 mono-number tracking-tighter">
+            {fmtTime(elapsed)}
+          </p>
+          <p className="text-xs font-bold text-zinc-500 mt-2 uppercase tracking-widest">{activeTimer}</p>
+          <button 
+            onClick={stopTimer} 
+            className="mt-6 px-6 py-2.5 bg-red-500/10 text-red-500 font-bold text-[10px] uppercase tracking-widest border border-red-500/20 rounded-xl hover:bg-red-500/20 active:scale-95 transition-all"
+          >
+            Завершить
+          </button>
         </div>
       )}
+      
       {MEWING_EXERCISES.map(({ emoji, label, duration, xp }) => (
-        <div key={label} className="card-aura p-4 flex items-center gap-3">
-          <span className="text-2xl">{emoji}</span>
+        <div key={label} className="bg-zinc-900 border border-zinc-800 p-4 rounded-2xl flex items-center gap-4">
+          <span className="text-2xl flex-shrink-0">{emoji}</span>
           <div className="flex-1 min-w-0">
-            <p className="text-sm font-semibold text-[rgb(var(--text-primary))]">{label}</p>
-            <div className="flex items-center gap-3 mt-0.5">
-              <p className="text-[10px] text-[rgb(var(--text-muted))]">⏱ {duration}</p>
-              <p className="text-[10px] font-bold text-amber-400">+{xp} XP</p>
+            <p className="text-sm font-bold text-zinc-100 truncate">{label}</p>
+            <div className="flex items-center gap-3 mt-1">
+              <div className="flex items-center gap-1.5">
+                <Timer size={10} className="text-zinc-600" />
+                <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">{duration}</p>
+              </div>
+              <p className="text-[10px] font-bold text-emerald-500 uppercase tracking-widest">+{xp} XP</p>
             </div>
           </div>
           <button
             onClick={() => activeTimer === label ? stopTimer() : startTimer(label)}
-            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+            className={`px-4 py-2.5 rounded-xl text-[10px] font-bold uppercase tracking-widest flex-shrink-0 transition-all ${
               activeTimer === label
-                ? 'bg-red-500/20 text-red-400 border border-red-500/30'
-                : 'bg-[rgba(var(--color-aura-purple),0.15)] text-[rgb(var(--color-aura-purple))] border border-[rgba(var(--color-aura-purple),0.3)]'
+                ? 'bg-zinc-800 text-zinc-300 border border-zinc-700'
+                : 'bg-zinc-100 text-black active:scale-95 hover:bg-white'
             }`}
           >
             {activeTimer === label ? 'Стоп' : 'Старт'}
@@ -178,27 +196,27 @@ export default function FacePage() {
   return (
     <div className="page-enter min-h-full">
       {/* Header */}
-      <div className="px-4 pt-8 pb-4">
-        <p className="text-xs font-bold text-[rgb(var(--text-muted))] uppercase tracking-widest mb-1">Модуль</p>
-        <h1 className="text-2xl font-black text-[rgb(var(--text-primary))]">
-          Лицо <span className="gradient-text">&</span> Кожа
+      <div className="px-4 pt-8 pb-5">
+        <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-1">МОДУЛЬ</p>
+        <h1 className="text-2xl font-black text-zinc-100">
+          БИО<span className="text-zinc-500">МЕТРИЯ</span>
         </h1>
       </div>
 
       {/* Tab Bar */}
-      <div className="px-4 mb-1">
-        <div className="flex gap-2 p-1 bg-[rgb(var(--bg-card))] rounded-2xl border border-[rgba(var(--border-subtle),0.6)]">
+      <div className="px-4 mb-2">
+        <div className="flex gap-2 p-1.5 bg-zinc-900 rounded-2xl border border-zinc-800">
           {TABS.map(({ id, label, icon: Icon }) => (
             <button
               key={id}
               onClick={() => { haptic.light(); setActiveTab(id) }}
-              className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-xs font-bold transition-all duration-200 ${
+              className={`flex-1 flex items-center justify-center gap-1.5 py-3 rounded-xl text-[10px] font-bold uppercase tracking-widest transition-all duration-200 ${
                 activeTab === id
-                  ? 'bg-[rgba(var(--color-aura-purple),0.9)] text-white shadow-md'
-                  : 'text-[rgb(var(--text-muted))] hover:text-[rgb(var(--text-primary))]'
+                  ? 'bg-zinc-100 text-black shadow-sm'
+                  : 'text-zinc-500 hover:text-zinc-300'
               }`}
             >
-              <Icon size={13} />
+              <Icon size={14} strokeWidth={activeTab === id ? 2.5 : 2} />
               {label}
             </button>
           ))}
@@ -206,7 +224,7 @@ export default function FacePage() {
       </div>
 
       {/* Tab Content */}
-      {activeTab === 'scanner'  && <FaceScanner />}
+      {activeTab === 'scanner'  && <AdvancedFaceScanner />}
       {activeTab === 'skincare' && <SkincareTab />}
       {activeTab === 'mewing'   && <MewingTab />}
     </div>
