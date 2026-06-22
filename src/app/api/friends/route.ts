@@ -11,30 +11,60 @@ export async function GET(request: NextRequest) {
 
   const supabase = await createServerAdminClient()
 
-  // Get all friends' tg_ids
-  const { data: friendRows, error: friendsError } = await supabase
+  // 1. Get all users I added
+  const { data: iAddedRows, error: iAddedError } = await supabase
     .from('friends')
     .select('friend_id')
     .eq('user_id', parseInt(tgId))
 
-  if (friendsError) return NextResponse.json({ error: friendsError.message }, { status: 500 })
+  if (iAddedError) return NextResponse.json({ error: iAddedError.message }, { status: 500 })
 
-  if (!friendRows || friendRows.length === 0) {
-    return NextResponse.json({ friends: [] })
+  // 2. Get all users who added me
+  const { data: addedMeRows, error: addedMeError } = await supabase
+    .from('friends')
+    .select('user_id')
+    .eq('friend_id', parseInt(tgId))
+
+  if (addedMeError) return NextResponse.json({ error: addedMeError.message }, { status: 500 })
+
+  const iAddedSet = new Set((iAddedRows ?? []).map(r => r.friend_id))
+  
+  const mutualIds: number[] = []
+  const incomingIds: number[] = []
+
+  // Check who added me: if I also added them -> mutual. Else -> incoming request.
+  for (const row of (addedMeRows ?? [])) {
+    if (iAddedSet.has(row.user_id)) {
+      mutualIds.push(row.user_id)
+    } else {
+      incomingIds.push(row.user_id)
+    }
   }
 
-  const friendIds = friendRows.map((r: { friend_id: number }) => r.friend_id)
+  // Also, what if I added someone but they haven't added me back? (Outgoing requests)
+  // The user only cares about seeing mutual friends in the leaderboard, and incoming requests to accept.
+  // We won't fetch outgoing for now unless needed.
 
-  // Fetch friend profiles
-  const { data: friends, error: usersError } = await supabase
+  const allIdsToFetch = Array.from(new Set([...mutualIds, ...incomingIds]))
+
+  if (allIdsToFetch.length === 0) {
+    return NextResponse.json({ friends: [], incomingRequests: [] })
+  }
+
+  // Fetch profiles
+  const { data: users, error: usersError } = await supabase
     .from('users')
     .select('tg_id, first_name, last_name, avatar_url, aura_points, aura_level, current_streak, last_active_date')
-    .in('tg_id', friendIds)
-    .order('aura_points', { ascending: false })
+    .in('tg_id', allIdsToFetch)
 
   if (usersError) return NextResponse.json({ error: usersError.message }, { status: 500 })
 
-  return NextResponse.json({ friends: friends ?? [] })
+  const friends = (users ?? []).filter(u => mutualIds.includes(u.tg_id))
+    .sort((a, b) => b.aura_points - a.aura_points)
+  
+  const incomingRequests = (users ?? []).filter(u => incomingIds.includes(u.tg_id))
+
+  return NextResponse.json({ friends, incomingRequests })
 }
 
 /**
@@ -65,10 +95,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'One or both users do not exist' }, { status: 404 })
   }
 
-  // Insert bidirectional friendship
+  // Insert one-way friendship (acts as a request, or an acceptance if the other already exists)
   const { error } = await supabase.from('friends').insert([
-    { user_id: user_tg_id, friend_id: friend_tg_id },
-    { user_id: friend_tg_id, friend_id: user_tg_id },
+    { user_id: user_tg_id, friend_id: friend_tg_id }
   ])
 
   // Ignore unique constraint violation (they are already friends)

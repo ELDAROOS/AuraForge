@@ -158,6 +158,7 @@ export default function ProfilePage() {
   const [showFriendSearch, setShowFriendSearch] = useState(false)
 
   const [friends, setFriends]           = useState<FriendRow[]>([])
+  const [requests, setRequests]         = useState<FriendRow[]>([])
   const [friendsLoading, setFriendsLoading] = useState(true)
   const [isSaving, setIsSaving]         = useState(false)
 
@@ -185,8 +186,9 @@ export default function ProfilePage() {
     try {
       const res = await fetch(`/api/friends?tg_id=${tgId}`)
       if (res.ok) {
-        const { friends: data } = await res.json()
-        setFriends(data ?? [])
+        const data = await res.json()
+        setFriends(data.friends ?? [])
+        setRequests(data.incomingRequests ?? [])
       }
     } catch (e) {
       console.error('[ProfilePage] loadFriends failed', e)
@@ -196,6 +198,24 @@ export default function ProfilePage() {
   }, [tgId])
 
   useEffect(() => { loadFriends() }, [loadFriends])
+
+  // ── Accept Request ─────────────────────────────────────────────
+  const acceptRequest = async (friendId: number) => {
+    haptic.success()
+    try {
+      await fetch('/api/friends', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user_tg_id: tgId,
+          friend_tg_id: friendId,
+        }),
+      })
+      loadFriends()
+    } catch (e) {
+      console.error('[ProfilePage] acceptRequest failed', e)
+    }
+  }
 
   // ── Invite link ────────────────────────────────────────────────
   const handleInvite = () => {
@@ -448,7 +468,7 @@ export default function ProfilePage() {
               <div key={i} className="h-16 rounded-2xl bg-zinc-900 border border-zinc-800 animate-pulse" />
             ))}
           </div>
-        ) : leaderboard.length === 0 ? (
+        ) : leaderboard.length === 0 && requests.length === 0 ? (
           <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-8 text-center">
             <Users size={32} className="text-zinc-700 mx-auto mb-3" />
             <p className="text-sm font-bold text-zinc-500 uppercase tracking-widest mb-1">Список пуст</p>
@@ -457,10 +477,38 @@ export default function ProfilePage() {
             </p>
           </div>
         ) : (
-          <div className="space-y-2">
-            {leaderboard.map((friend, index) => (
-              <LeaderboardRow key={friend.tg_id} friend={friend} rank={index + 1} />
-            ))}
+          <div className="space-y-4">
+            {/* ── Заявки в друзья ── */}
+            {requests.length > 0 && (
+              <div className="space-y-2">
+                <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest px-2 mb-2">Входящие заявки</p>
+                {requests.map(req => (
+                  <div key={req.tg_id} className="flex items-center gap-3 p-3 rounded-2xl bg-zinc-900 border border-emerald-500/30">
+                    <Avatar url={req.avatar_url} name={req.first_name} size="md" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-bold text-zinc-100 truncate">{req.first_name}</p>
+                      {req.tg_username && <span className="text-[9px] text-zinc-600 font-mono">@{req.tg_username}</span>}
+                    </div>
+                    <button
+                      onClick={() => acceptRequest(req.tg_id)}
+                      className="px-4 py-1.5 rounded-lg text-xs font-bold text-black uppercase tracking-widest bg-emerald-500 hover:bg-emerald-400 transition-colors"
+                    >
+                      Принять
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* ── Лидерборд ── */}
+            {leaderboard.length > 0 && (
+              <div className="space-y-2">
+                {requests.length > 0 && <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest px-2 mb-2">Твои друзья</p>}
+                {leaderboard.map((friend, index) => (
+                  <LeaderboardRow key={friend.tg_id} friend={friend} rank={index + 1} />
+                ))}
+              </div>
+            )}
           </div>
         )}
       </div>
