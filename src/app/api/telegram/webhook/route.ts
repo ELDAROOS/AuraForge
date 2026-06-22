@@ -28,7 +28,63 @@ export async function POST(request: NextRequest) {
       const protocol = host?.includes('localhost') ? 'http' : 'https'
       const appUrl = `${protocol}://${host}`
 
-      if (text.startsWith('/start')) {
+      // Handle Magic Link Login
+      if (text.startsWith('/start login_')) {
+        const tokenStr = text.replace('/start login_', '').trim()
+        
+        // 1. Upsert user in database
+        const supabase = await createServerAdminClient()
+        const { data: user, error: userError } = await supabase
+          .from('users')
+          .select('id')
+          .eq('tg_id', chatId)
+          .single()
+
+        let dbUserId = user?.id
+        if (!user) {
+          // Create new user
+          const { data: newUser } = await supabase.from('users').insert({
+            tg_id: chatId,
+            first_name: firstName,
+            tg_username: update.message.from?.username || null
+          }).select('id').single()
+          dbUserId = newUser?.id
+        } else {
+          // Update existing user info
+          await supabase.from('users').update({
+            first_name: firstName,
+            tg_username: update.message.from?.username || null
+          }).eq('id', dbUserId)
+        }
+
+        // 2. Save token in aura_transactions as a creative way to pass data without new tables
+        if (dbUserId) {
+          await supabase.from('aura_transactions').insert({
+            user_id: dbUserId,
+            amount: 0,
+            reason: 'auth_token',
+            reference_id: tokenStr,
+            balance_after: 0
+          })
+        }
+
+        const successMsg = `
+✅ <b>Авторизация успешна!</b>
+
+Я подтвердил твой профиль. Возвращайся в браузер (Safari/Chrome), страница обновится автоматически! ⚡️
+        `.trim()
+
+        await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            chat_id: chatId,
+            text: successMsg,
+            parse_mode: 'HTML'
+          })
+        })
+      }
+      else if (text.startsWith('/start')) {
         const welcomeMessage = `
 Привет, <b>${firstName}</b>! ⚡️
 
