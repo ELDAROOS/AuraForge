@@ -44,7 +44,7 @@ export function TelegramProvider({ children }: { children: React.ReactNode }) {
         }
         isWebUser = true
       } else {
-        setTgUser(tgUser)
+        if (tgUser) setTgUser(tgUser)
       }
 
       // ── 4. Upsert пользователя в Supabase ────────────────────────
