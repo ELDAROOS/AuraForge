@@ -51,7 +51,15 @@ export function TelegramProvider({ children }: { children: React.ReactNode }) {
     initialized.current = true
 
     async function init() {
-      const tg = window.Telegram?.WebApp
+      // Пытаемся получить объект Telegram WebApp с небольшим ожиданием
+      let tg = window.Telegram?.WebApp
+      let retries = 0
+      while (!tg && retries < 10) {
+        await new Promise(r => setTimeout(r, 100)) // Ждем 100мс
+        tg = window.Telegram?.WebApp
+        retries++
+      }
+
       if (tg) {
         tg.ready()
         tg.expand()
@@ -59,6 +67,14 @@ export function TelegramProvider({ children }: { children: React.ReactNode }) {
 
       // ── 1. Проверяем среду Telegram ──────────────────────────────
       let tgUser: TelegramUser | null = tg?.initDataUnsafe?.user ?? null
+
+      // Иногда initDataUnsafe не сразу готов
+      retries = 0
+      while (!tgUser && tg?.initDataUnsafe && retries < 10) {
+        await new Promise(r => setTimeout(r, 100))
+        tgUser = tg.initDataUnsafe.user ?? null
+        retries++
+      }
 
       // ── 2. Если не в Telegram, ищем локальную сессию ──────────
       if (!tgUser) {

@@ -28,8 +28,10 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="ru" suppressHydrationWarning>
+      <head>
+        <script src="https://telegram.org/js/telegram-web-app.js" async={false}></script>
+      </head>
       <body className={`${inter.variable} font-sans antialiased bg-black`}>
-        <Script src="https://telegram.org/js/telegram-web-app.js" strategy="beforeInteractive" />
         <TelegramProvider>
           {/*
             app-shell: занимает 100% высоты экрана, flex-col.
