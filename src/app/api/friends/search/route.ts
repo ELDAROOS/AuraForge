@@ -7,8 +7,12 @@ import { createServerAdminClient } from '@/lib/supabase/server'
  * Returns up to 10 results.
  */
 export async function GET(request: NextRequest) {
-  const q     = request.nextUrl.searchParams.get('q')?.trim() ?? ''
+  let q = request.nextUrl.searchParams.get('q')?.trim() ?? ''
   const tg_id = request.nextUrl.searchParams.get('tg_id')
+
+  if (q.startsWith('@')) {
+    q = q.substring(1)
+  }
 
   if (!q || q.length < 2) {
     return NextResponse.json({ users: [] })
