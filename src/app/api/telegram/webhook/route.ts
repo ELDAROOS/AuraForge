@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { createServerAdminClient } from '@/lib/supabase/server'
 
 /**
  * POST /api/telegram/webhook
