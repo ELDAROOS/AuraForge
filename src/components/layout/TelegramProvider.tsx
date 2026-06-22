@@ -7,15 +7,13 @@ import { TelegramUser } from '@/types/telegram'
 /**
  * Инициализирует Telegram WebApp SDK, регистрирует пользователя в Supabase
  * и обрабатывает invite-параметр из deep link (startapp=invite_ID).
- *
- * Рендерит только children — не добавляет никакой разметки.
+ * Если запущено вне Telegram, создаёт локальный веб-профиль для полноценной работы.
  */
 export function TelegramProvider({ children }: { children: React.ReactNode }) {
   const { setTgUser, setDbUser, setLoading } = useAppStore()
   const initialized = useRef(false)
 
   useEffect(() => {
-    // Запускаем только один раз, даже в StrictMode (двойной вызов)
     if (initialized.current) return
     initialized.current = true
 
@@ -30,17 +28,24 @@ export function TelegramProvider({ children }: { children: React.ReactNode }) {
       // ── 2. Читаем пользователя из initDataUnsafe ─────────────────
       const tgUser: TelegramUser | null = tg?.initDataUnsafe?.user ?? null
 
-      // ── 3. Определяем tg_id: реальный или dev-заглушка ───────────
-      const devMode = process.env.NODE_ENV === 'development' && !tgUser
-      const tg_id = tgUser?.id ?? (devMode ? 999999999 : null)
+      // ── 3. Определяем tg_id: Telegram, Web-fallback или Dev ──────
+      let tg_id = tgUser?.id
+      let isWebUser = false
 
       if (!tg_id) {
-        // Запущено в браузере вне Telegram и не dev → пропускаем
-        setLoading(false)
-        return
+        // Если мы не в телеграме (обычный браузер)
+        const storedWebId = localStorage.getItem('auraforge_web_id')
+        if (storedWebId) {
+          tg_id = parseInt(storedWebId, 10)
+        } else {
+          // Генерируем случайный ID для веб-пользователя (от 1 млрд до 2 млрд)
+          tg_id = Math.floor(Math.random() * 1000000000) + 1000000000
+          localStorage.setItem('auraforge_web_id', tg_id.toString())
+        }
+        isWebUser = true
+      } else {
+        setTgUser(tgUser)
       }
-
-      if (tgUser) setTgUser(tgUser)
 
       // ── 4. Upsert пользователя в Supabase ────────────────────────
       try {
@@ -57,11 +62,10 @@ export function TelegramProvider({ children }: { children: React.ReactNode }) {
                   avatar_url: tgUser.photo_url ?? null,
                 }
               : {
-                  // Dev-заглушка
-                  tg_id: 999999999,
-                  first_name: 'Dev',
-                  last_name: 'User',
-                  tg_username: 'devuser',
+                  tg_id: tg_id,
+                  first_name: isWebUser ? 'Web' : 'Dev',
+                  last_name: isWebUser ? 'User' : 'User',
+                  tg_username: null, // Пустой юзернейм для веба
                 }
           ),
         })
@@ -74,11 +78,10 @@ export function TelegramProvider({ children }: { children: React.ReactNode }) {
         console.error('[TelegramProvider] User upsert failed:', err)
       }
 
-      // ── 5. Обработка invite-ссылки (startapp=invite_{referrerId}) ─
-      // Telegram передаёт параметр через initDataUnsafe.start_param
+      // ── 5. Обработка invite-ссылки ──────────────────────────────
       const startParam = tg?.initDataUnsafe?.start_param
 
-      if (startParam?.startsWith('invite_')) {
+      if (startParam?.startsWith('invite_') && !isWebUser) {
         const referrerId = parseInt(startParam.replace('invite_', ''), 10)
 
         if (!isNaN(referrerId) && referrerId !== tg_id) {
@@ -87,8 +90,8 @@ export function TelegramProvider({ children }: { children: React.ReactNode }) {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
-                user_tg_id: tg_id,       // тот, кто перешёл по ссылке
-                friend_tg_id: referrerId, // тот, кто пригласил
+                user_tg_id: tg_id,
+                friend_tg_id: referrerId,
               }),
             })
           } catch (err) {
