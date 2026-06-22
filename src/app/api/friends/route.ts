@@ -55,16 +55,26 @@ export async function POST(request: NextRequest) {
 
   const supabase = await createServerAdminClient()
 
-  // Insert bidirectional friendship
-  const { error } = await supabase.from('friends').upsert(
-    [
-      { user_id: user_tg_id, friend_id: friend_tg_id },
-      { user_id: friend_tg_id, friend_id: user_tg_id },
-    ],
-    { onConflict: 'user_id,friend_id', ignoreDuplicates: true }
-  )
+  // Verify users exist first (to avoid foreign key errors if they haven't synced yet)
+  const { data: usersCount } = await supabase
+    .from('users')
+    .select('tg_id')
+    .in('tg_id', [user_tg_id, friend_tg_id])
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  if (!usersCount || usersCount.length < 2) {
+    return NextResponse.json({ error: 'One or both users do not exist' }, { status: 404 })
+  }
+
+  // Insert bidirectional friendship
+  const { error } = await supabase.from('friends').insert([
+    { user_id: user_tg_id, friend_id: friend_tg_id },
+    { user_id: friend_tg_id, friend_id: user_tg_id },
+  ])
+
+  // Ignore unique constraint violation (they are already friends)
+  if (error && error.code !== '23505') {
+    return NextResponse.json({ error: error.message }, { status: 500 })
+  }
 
   return NextResponse.json({ ok: true })
 }

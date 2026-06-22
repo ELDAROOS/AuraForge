@@ -45,13 +45,17 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'tg_id and first_name are required' }, { status: 400 })
   }
 
+  const cleanUsername = (typeof tg_username === 'string' && tg_username.trim().length > 0)
+    ? tg_username.trim().toLowerCase()
+    : null
+
   const supabase = await createServerAdminClient()
 
   // Upsert пользователя
   const { data: user, error } = await supabase
     .from('users')
     .upsert(
-      { tg_id, first_name, last_name, tg_username, avatar_url },
+      { tg_id, first_name, last_name, tg_username: cleanUsername, avatar_url },
       { onConflict: 'tg_id', ignoreDuplicates: false }
     )
     .select()
@@ -98,29 +102,33 @@ export async function PATCH(request: NextRequest) {
   const supabase = await createServerAdminClient()
 
   // ── Username uniqueness check ──────────────────────────────────
-  if (updates.tg_username) {
-    const username = (updates.tg_username as string).trim().toLowerCase()
+  if ('tg_username' in updates) {
+    if (!updates.tg_username || typeof updates.tg_username !== 'string' || !updates.tg_username.trim()) {
+      updates.tg_username = null
+    } else {
+      const username = updates.tg_username.trim().toLowerCase()
 
-    // Validate format: only a-z, 0-9, underscore, 3-32 chars
-    if (!/^[a-z0-9_]{3,32}$/.test(username)) {
-      return NextResponse.json(
-        { error: 'Username must be 3–32 characters: letters, digits, underscore only.' },
-        { status: 422 }
-      )
+      // Validate format: only a-z, 0-9, underscore, 3-32 chars
+      if (!/^[a-z0-9_]{3,32}$/.test(username)) {
+        return NextResponse.json(
+          { error: 'Username must be 3–32 characters: letters, digits, underscore only.' },
+          { status: 422 }
+        )
+      }
+
+      const { data: existing } = await supabase
+        .from('users')
+        .select('tg_id')
+        .eq('tg_username', username)
+        .neq('tg_id', tg_id)
+        .maybeSingle()
+
+      if (existing) {
+        return NextResponse.json({ error: 'Username already taken.' }, { status: 409 })
+      }
+
+      updates.tg_username = username
     }
-
-    const { data: existing } = await supabase
-      .from('users')
-      .select('tg_id')
-      .eq('tg_username', username)
-      .neq('tg_id', tg_id)
-      .maybeSingle()
-
-    if (existing) {
-      return NextResponse.json({ error: 'Username already taken.' }, { status: 409 })
-    }
-
-    updates.tg_username = username
   }
 
   const { data, error } = await supabase
