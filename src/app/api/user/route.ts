@@ -86,7 +86,8 @@ export async function POST(request: NextRequest) {
 
 /**
  * PATCH /api/user
- * Updates user profile (physical params, etc.)
+ * Updates user profile (physical params, username, avatar_url, etc.)
+ * If `tg_username` is included, checks uniqueness first.
  */
 export async function PATCH(request: NextRequest) {
   const body = await request.json()
@@ -95,9 +96,36 @@ export async function PATCH(request: NextRequest) {
   if (!tg_id) return NextResponse.json({ error: 'tg_id is required' }, { status: 400 })
 
   const supabase = await createServerAdminClient()
+
+  // ── Username uniqueness check ──────────────────────────────────
+  if (updates.tg_username) {
+    const username = (updates.tg_username as string).trim().toLowerCase()
+
+    // Validate format: only a-z, 0-9, underscore, 3-32 chars
+    if (!/^[a-z0-9_]{3,32}$/.test(username)) {
+      return NextResponse.json(
+        { error: 'Username must be 3–32 characters: letters, digits, underscore only.' },
+        { status: 422 }
+      )
+    }
+
+    const { data: existing } = await supabase
+      .from('users')
+      .select('tg_id')
+      .eq('tg_username', username)
+      .neq('tg_id', tg_id)
+      .maybeSingle()
+
+    if (existing) {
+      return NextResponse.json({ error: 'Username already taken.' }, { status: 409 })
+    }
+
+    updates.tg_username = username
+  }
+
   const { data, error } = await supabase
     .from('users')
-    .update(updates)
+    .update({ ...updates, updated_at: new Date().toISOString() })
     .eq('tg_id', tg_id)
     .select()
     .single()
